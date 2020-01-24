@@ -1,0 +1,49 @@
+---
+title: "Neurite/SomaTaqmanFractionationCheck"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+```
+
+```{r, get data}
+cts <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/20.01.08_RG_SNchk -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")
+
+```
+
+```{r, organize}
+
+cts_tidy <- cts %>%
+  as_tibble() %>%
+  select(Well, Fluor, Cq) %>%
+  spread(key = Fluor, value = Cq) %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(cDNA = ifelse(col == "01", "soma_KE",
+                       ifelse(col == "02", "neurite_KE",
+                              ifelse(col == "03", "soma_AA",
+                                     ifelse(col == "04", "neurite_AA",
+                                            ifelse(col == "05", "soma_RG",
+                                                   ifelse(col == "06", "neurite_RG", "empty"))))))) %>% 
+  filter(cDNA != "empty") %>% 
+  separate(cDNA, into = c("Fraction", "Person"), sep = "_") %>% 
+  mutate(diff = FAM - HEX)
+  
+```
+
+```{r,  plot}
+cts_tidy %>% ggplot(aes(Person, 2**-diff, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(y = "2^(ranbp1 - tsc1)")
+
+cts_tidy %>% select(row, Person, Fraction, diff) %>% mutate(diff = -diff) %>% spread(Fraction, diff) %>% mutate(LR = neurite - soma) %>%  ggplot(aes(Person, 2**LR, fill = Person)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(y = "2^((ranbp1 - tsc1 neurite) / (ranbp1 - tsc1 soma))")
+
+cts_tidy %>% ggplot(aes(Person, -FAM, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(title = "tsc1")
+
+cts_tidy %>% ggplot(aes(Person, -HEX, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(title = "ranbp1")
+
+```
+
+
+

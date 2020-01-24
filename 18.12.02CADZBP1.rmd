@@ -1,0 +1,136 @@
+---
+title: "18.12.02 CAD ZBP1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+```
+
+```{r, get data}
+cts1 <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/18.12.02rgCADZBP1.csv", header = TRUE, sep = ",")
+cts2 <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/18.12.09morecadzpb1.csv", header = TRUE, sep = ",")
+
+```
+
+```{r, organize}
+
+cts_tidy1 <- cts1 %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(primer = ifelse(row == "A" | row == "B", "IGF2BP1 PP2", 
+                         ifelse(row == "C" | row == "D", "HPRT", "empty"))) %>% 
+  filter(primer != "empty") %>%
+  mutate(RT = ifelse(col == "01" | 
+                     col == "03" | 
+                     col == "05" |
+                     col == "07" |
+                     col == "09" |
+                     col == "11" |
+                     col == "13" |
+                     col == "15" |
+                     col == "17" |
+                     col == "19" |
+                     col == "21" |
+                     col == "23", "pRT", 
+                     ifelse(col == "02" |
+                            col == "04" |
+                            col == "06" |
+                            col == "08" |
+                            col == "10" |
+                            col == "12" |
+                            col == "14" |
+                            col == "16" |
+                            col == "18" |
+                            col == "20" |
+                            col == "22" |
+                            col == "24", "mRT", "empty"))) %>% 
+  filter(RT != "empty") %>% 
+  mutate(cDNA = ifelse((col == paste("0",c(1:6), sep="")) & (row == "A" | row == "C") , "FL+DOX",
+                  ifelse((col == paste("0",c(7:9), sep="") | col == c(10:12)) & (row == "A" | row == "C") , "FL-DOX",
+                  ifelse((col == c(13:18)) & (row == "A" | row == "C" ) , "KH34+DOX",
+                  ifelse((col == c(19:24)) & (row == "A" | row == "C" ) , "KH34-DOX",
+                  ifelse((col == paste("0",c(1:6), sep="")) & (row == "B" | row == "D") , "GFP+DOX",
+                  ifelse((col == paste("0",c(7:9), sep="") | col == c(10:12)) & (row == "B" | row == "D") , "GFP-DOX", "empty"))))))) %>% 
+  filter(cDNA != "empty") %>% 
+  select(cDNA, RT, primer, Cq) %>% 
+  mutate(Cq = ifelse(is.na(Cq), 40, Cq)) 
+
+cts_tidy2 <- cts2 %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(primer = ifelse(row == "A" | row == "B", "IGF2BP1 PP1", 
+                         ifelse(row == "C" | row == "D", "IGF2BP1 PP3", "empty"))) %>% 
+  filter(primer != "empty") %>%
+  mutate(RT = ifelse(col == "01" | 
+                     col == "03" | 
+                     col == "05" |
+                     col == "07" |
+                     col == "09" |
+                     col == "11" |
+                     col == "13" |
+                     col == "15" |
+                     col == "17" |
+                     col == "19" |
+                     col == "21" |
+                     col == "23", "pRT", 
+                     ifelse(col == "02" |
+                            col == "04" |
+                            col == "06" |
+                            col == "08" |
+                            col == "10" |
+                            col == "12" |
+                            col == "14" |
+                            col == "16" |
+                            col == "18" |
+                            col == "20" |
+                            col == "22" |
+                            col == "24", "mRT", "empty"))) %>% 
+  filter(RT != "empty") %>% 
+  mutate(cDNA = ifelse((col == paste("0",c(1:6), sep="")) & (row == "A" | row == "C") , "FL+DOX",
+                  ifelse((col == paste("0",c(7:9), sep="") | col == c(10:12)) & (row == "A" | row == "C") , "FL-DOX",
+                  ifelse((col == c(13:18)) & (row == "A" | row == "C" ) , "KH34+DOX",
+                  ifelse((col == c(19:24)) & (row == "A" | row == "C" ) , "KH34-DOX",
+                  ifelse((col == paste("0",c(1:6), sep="")) & (row == "B" | row == "D") , "GFP+DOX",
+                  ifelse((col == paste("0",c(7:9), sep="") | col == c(10:12)) & (row == "B" | row == "D") , "GFP-DOX", "empty"))))))) %>% 
+  filter(cDNA != "empty") %>% 
+  select(cDNA, RT, primer, Cq) %>% 
+  mutate(Cq = ifelse(is.na(Cq), 40, Cq)) 
+
+cts_tidy <- rbind(cts_tidy1, cts_tidy2) %>% mutate(Dox = str_sub(cDNA, -4, -1), cDNA = str_sub(cDNA, 1, -5))
+  
+```
+
+```{r, }
+cts_mean <- cts_tidy %>%
+  group_by(RT, primer, cDNA) %>% 
+summarize(meanCq = mean(Cq), varCq = var(Cq))
+
+exp <-  cts_mean %>%
+  select(-varCq) %>% 
+  spread(primer, meanCq) %>% 
+  left_join(cts_tidy, .) %>% 
+  mutate(dCT = Cq - HPRT, logdCT = 2^(-dCT)) %>% 
+  group_by(cDNA, Dox, RT, primer) %>% 
+  filter(RT == "pRT") %>%
+  summarize(meanlogCT = mean(logdCT))
+
+housekeeping <- exp %>% group_by(cDNA) %>% filter(primer == "HPRT") %>% select(cDNA, meanlogCT)
+housekeeping <- housekeeping %>% rbind(housekeeping)  %>% rename(housekeeping = meanlogCT)
+
+exp_norm <- exp %>% left_join(housekeeping) %>% mutate(normlogCT = meanlogCT / housekeeping)
+
+```
+
+```{r, }
+cts_tidy %>% filter(Dox == "+DOX", cDNA == "FL" | cDNA == "KH34" | cDNA == "GFP") %>% ggplot(aes(cDNA, -Cq, fill = RT)) + geom_boxplot() + geom_point(position = position_jitter(width = 0.1, height = 0.1)) + facet_grid(. ~ primer)
+
+exp_norm %>% ggplot(aes(cDNA, normlogCT, fill = primer)) + geom_bar(stat = "identity", position = "dodge")
+exp_norm %>% ggplot(aes(cDNA, meanlogCT, fill = primer)) + geom_bar(stat = "identity", position = "dodge")
+
+cts_tidy %>% filter(RT == "pRT", primer == "IGF2BP1 PP1" | primer == "HPRT", Dox == "+DOX", cDNA == "FL" | cDNA == "KH34" | cDNA == "GFP") %>% group_by(cDNA,primer) %>% summarize(mean_cq = mean(Cq)) %>% spread(primer, mean_cq) %>% left_join(cts_tidy, .) %>% filter(RT == "pRT", primer == "IGF2BP1 PP1" | primer == "HPRT", Dox == "+DOX", cDNA == "FL" | cDNA == "KH34" | cDNA == "GFP") %>% select(-RT, -Dox) %>% mutate(dCT = Cq - HPRT, logdCT = 2^(-dCT)) %>% filter(primer == "IGF2BP1 PP1") %>% ggplot(aes(cDNA, logdCT, fill = cDNA)) + geom_boxplot() + guides(fill = FALSE) + geom_point(position = "jitter")
+
+```
+

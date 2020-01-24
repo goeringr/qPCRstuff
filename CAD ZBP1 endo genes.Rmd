@@ -1,0 +1,79 @@
+---
+title: "Taqman qPCR"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+```
+
+
+```{r, get data}
+cts <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/CAD ZBP1 endo genes2019-12-13 -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")
+
+```
+
+```{r, organize}
+
+cts_tidy <- cts %>%
+  as_tibble() %>%
+  select(Well, Fluor, Cq) %>%
+  spread(key = Fluor, value = Cq) %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(gene = ifelse(row == "A" | row == "B" | row == "C", "Ankrd11", 
+                         ifelse(row == "D" | row == "E" | row == "F", "Ddr2", 
+                                ifelse(row == "G" | row == "H" | row == "I", "Iqgap1",
+                                       ifelse(row == "J" | row == "K" | row == "L", "Myrip",
+                                              ifelse(row == "M" | row == "N" | row == "O", "tsc1", "empty")))))) %>% 
+  filter(gene != "empty") %>% 
+  mutate(cDNA = ifelse(col == "01" | col == "02" | col == "13", "ZBP1_soma",
+                       ifelse(col == "03" | col == "04" | col == "15", "KH34_soma",
+                              ifelse(col == "05" | col == "06" | col == "17", "GFP_soma",
+                                     ifelse(col == "07" | col == "08" | col == "19", "ZBP1_neurite",
+                                            ifelse(col == "09" | col == "10" | col == "21", "KH34_neurite",
+                                                   ifelse(col == "11" | col == "12" | col == "23", "GFP_neurite", "empty"))))))) %>% 
+  filter(cDNA != "empty") %>% 
+  mutate(rep = ifelse(col == "01" | col == "03" | col == "05" | col == "07" | col == "09" | col == "11", "rep1", 
+                      ifelse(col == "02" | col == "04" | col == "06" | col == "08" | col == "10" | col == "12", "rep2",
+                             ifelse(col == "13" | col == "15" | col == "17" | col == "19" | col == "21" | col == "23", "rep3", "empty")))) %>%
+  filter(rep != "empty") %>% 
+  separate(cDNA, into = c("Rescue", "Fraction"), sep = "_") %>% 
+  mutate(diff = FAM - HEX)
+  
+```
+
+```{r,  fractionation quality}
+cts_tidy %>% filter(gene == "tsc1") %>% ggplot(aes(Rescue, 2**diff, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(y = "2^(ranbp1 - tsc1)")
+
+
+cts_tidy %>% select(row, gene, Rescue, Fraction, rep, diff) %>% mutate(diff = -diff) %>% spread(Fraction, diff) %>% mutate(LR = neurite - soma) %>% filter(gene == "tsc1") %>% ggplot(aes(Rescue, 2**-LR, fill = Rescue)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(y = "2^((ranbp1 - tsc1 neurite) / (ranbp1 - tsc1 soma))")
+
+HPRT <- cts_tidy %>% group_by(Rescue, Fraction, rep) %>% summarize(HPRT = mean(HEX))
+qual <- cts_tidy %>% filter(gene == "tsc1") %>% group_by(Rescue,Fraction,rep) %>% summarize(Ranbp = mean(HEX), tsc1 = mean(FAM))
+
+full_join(HPRT, qual) %>% mutate(dcT_ranbp1 = Ranbp - HPRT, dcT_tsc1 = tsc1 - HPRT) %>% select(Rescue, Fraction, rep, dcT_ranbp1, dcT_tsc1) %>% gather(-Rescue, - Fraction, -rep, key = gene, value = dcT) %>% ggplot(aes(x = Rescue, y = 2**dcT, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + facet_grid(. ~ gene) + labs(y = "2^(gene - HPRT)")
+
+full_join(HPRT, qual) %>% mutate(dcT_ranbp1 = Ranbp - HPRT, dcT_tsc1 = tsc1 - HPRT) %>% select(Rescue, Fraction, rep, dcT_ranbp1, dcT_tsc1) %>% gather(-Rescue, - Fraction, -rep, key = gene, value = dcT) %>% spread(Fraction, dcT) %>% mutate(LR = neurite - soma) %>%  ggplot(aes(x = Rescue, y = 2**-LR, fill = Rescue)) + geom_boxplot() + geom_point() + theme_cowplot() + facet_grid(. ~ gene) + labs(y = "2^((gene - HPRT neurite) / (gene - HPRT soma))")
+
+tsc1_norm <- cts_tidy %>% select(row, gene, Rescue, Fraction, rep, diff) %>% spread(Fraction, diff) %>% mutate(LR = neurite - soma) %>% filter(gene == "tsc1") %>% mutate(norm = LR) %>% select(Rescue, rep, norm) %>% rbind(.,.) %>% rbind(.,.) %>% arrange(Rescue, rep) %>% mutate(trep = rep(1:3,36))
+cts_tidy %>% select(row, gene, Rescue, Fraction, rep, diff) %>% spread(Fraction, diff) %>% mutate(LR = neurite - soma) %>% filter(gene != "tsc1") %>% arrange(gene, Rescue, rep) %>% mutate(trep = rep(1:3,36)) %>% select(-neurite, -soma) %>% left_join(., tsc1_norm) %>% unique() %>% mutate(LR_norm = LR - norm) %>% ggplot(aes(x = Rescue, y = 2**-LR_norm, fill = Rescue)) + geom_boxplot() + geom_point() + theme_cowplot() + facet_grid(.~gene)
+
+##just HPRT cqs
+cts_tidy %>% filter(gene != "tsc1") %>% ggplot(aes(x = Rescue, y = -HEX, fill = Fraction)) + geom_boxplot() + geom_point(aes(shape = rep),position = position_jitterdodge()) + theme_cowplot()
+
+
+```
+
+
+```{r, }
+
+cts_tidy %>% filter(gene != "tsc1") %>% group_by(gene, Rescue, Fraction, rep) %>% summarise(mean_diff = mean(diff)) %>% ggplot(aes(Rescue, 2**-mean_diff, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + facet_grid(. ~ gene)
+
+comparisons <- list(c("GFP", "KH34"), c("GFP", "ZBP1"), c("KH34", "ZBP1"))
+cts_tidy %>% filter(gene != "tsc1") %>% group_by(gene, Rescue, Fraction, rep) %>% summarise(mean_diff = mean(diff)) %>% spread(Fraction, mean_diff) %>% mutate(LR = neurite - soma) %>% ggplot(aes(Rescue, -LR, fill = Rescue)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + stat_compare_means(comparisons = comparisons) + facet_grid(. ~ gene)
+
+
+```
