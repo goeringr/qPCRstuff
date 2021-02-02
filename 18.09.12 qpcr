@@ -1,0 +1,109 @@
+---
+title: "qpcr 18.09.12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gridExtra)
+library(cowplot)
+
+```
+
+```{r, get data}
+cts <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/rg qPCR 18.09.12.csv", header = TRUE, sep = ",")
+
+```
+
+```{r, organize}
+cts_tidy <- cts %>% 
+  as_tibble() 
+cts_tidy <- cts_tidy %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(gene = ifelse(row == "A" | 
+                       row == "B" | 
+                       row == "C", "FMR1", 
+                       ifelse(row == "D" |
+                              row == "E" |
+                              row == "F" , "HPRT", "empty"))) %>% 
+  filter(gene != "empty") %>%
+  mutate(RT = ifelse(col == "01" | 
+                     col == "03" | 
+                     col == "05" |
+                     col == "07" |
+                     col == "09" |
+                     col == "11" | 
+                     col == "13" |
+                     col == "15" |
+                     col == "17" |
+                     col == "19" |
+                     col == "21" |
+                     col == "23", "pRT",
+                     ifelse(col == "02" |
+                            col == "04" |
+                            col == "06" |
+                            col == "08" |
+                            col == "10" |
+                            col == "12" |
+                            col == "14" |
+                            col == "16" |
+                            col == "18" |
+                            col == "20" |
+                            col == "22" |
+                            col == "24", "mRT", "empty"))) %>% 
+  filter(RT != "empty") %>% 
+  mutate(clone = ifelse(col == "01" | col == "02", "c1-23",
+                 ifelse(col == "03" | col == "04", "c1-28",
+                 ifelse(col == "05" | col == "06", "c1-30",
+                 ifelse(col == "07" | col == "08", "c1-56",
+                 ifelse(col == "09" | col == "10", "c1-62",
+                 ifelse(col == "11" | col == "12", "c2-28",
+                 ifelse(col == "13" | col == "14", "c2-41",
+                 ifelse(col == "15" | col == "16", "c2-53",
+                 ifelse(col == "17" | col == "18", "c2-64",
+                 ifelse(col == "19" | col == "20", "c2-67",
+                 ifelse(col == "21" | col == "22", "Pool",
+                 ifelse(col == "23" | col == "24", "Lox", "empty"))))))))))))) %>% 
+  filter(clone != "empty") %>% 
+  group_by(gene, RT, clone) %>% 
+  mutate(Cq = ifelse(Cq == 0, 40, Cq)) 
+ 
+```
+
+```{r, }
+cts_mean <- cts_tidy %>%
+  group_by(clone, gene, RT) %>% 
+summarize(meanCq = mean(Cq), varCq = var(Cq))
+exp <-  cts_mean %>%
+  select(-varCq) %>% 
+  spread(gene, meanCq) %>% 
+  left_join(cts_tidy, .) %>% 
+  mutate(dCT = Cq - HPRT, logdCT = 2^(-dCT)) %>% 
+  group_by(gene, RT, clone) %>% 
+  filter(RT == "pRT") %>%
+  summarize(meanlogCT = mean(logdCT)) %>%
+  mutate(normlogCT = meanlogCT / 0.785 , 
+         percent_KO = (1-normlogCT)*100)
+
+```
+
+```{r, }
+cts_tidy %>% ggplot(aes(clone, -Cq, fill = RT)) + geom_boxplot() + geom_point(position = "jitter") + facet_grid(. ~gene)
+
+exp %>% ggplot(aes(clone, normlogCT, fill = gene)) + geom_bar(stat = "identity", position = "dodge") 
+
+exp %>% filter(gene == "FMR1") %>% mutate(percent_KO = normlogCT / 1.00) %>% ggplot(aes(clone, percent_KO, fill = clone)) + geom_bar(stat = "identity") + labs(y = "percent FMR1 Expression (%)", title = "FMR1 KO")
+
+cts_mean %>%
+  select(-varCq) %>% 
+  spread(gene, meanCq) %>% 
+  left_join(cts_tidy, .) %>% 
+  mutate(dCT = Cq - HPRT, logdCT = 2^(-dCT)) %>% 
+  group_by(gene, RT, clone) %>% 
+  filter(RT == "pRT", gene == "FMR1") %>% 
+    mutate(norm_KO = (logdCT / 0.785)*100) %>% ggplot(aes(clone, norm_KO, col = clone)) + geom_boxplot() +  geom_point(position = position_jitter(width = 0.1, height = 0.1)) + guides(col = FALSE) + scale_y_continuous(limits = c(10, 100)) + labs(y = "Percent FMR1 expression (%)", title = "FMR1 qPCR of Sorted Clones")
+
+```
+
+

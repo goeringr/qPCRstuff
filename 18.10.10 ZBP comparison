@@ -1,0 +1,72 @@
+---
+title: "ZBP qpcr comparison"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+```
+
+```{r, get data}
+cts <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/18.10.10 rg -  Quantification Summary_0.csv", header = TRUE, sep = ",")
+
+```
+
+```{r, organize}
+cts_tidy <- cts %>% 
+  as_tibble() 
+cts_tidy <- cts_tidy %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(product = ifelse(row == "A" | 
+                          row == "C" | 
+                          row == "D" |
+                          (row == "E" & col < 12), "BioRad", 
+                          ifelse(row == "B" |
+                                 (row == "E" & col > 12),  "QuantaBio", "empty"))) %>% 
+  filter(product != "empty") %>%
+  mutate(RT = ifelse(col == "01" | 
+                     col == "03" | 
+                     col == "05" |
+                     col == "13" |
+                     col == "15" |
+                     col == "17", "pRT", 
+                     ifelse(col == "07" |
+                            col == "09" |
+                            col == "11" |
+                            col == "19" |
+                            col == "21" |
+                            col == "23", "mRT", "empty"))) %>% 
+  filter(RT != "empty") %>% 
+  mutate(Primer = ifelse((col == "01" | col == "03" | col == "05" | col == "07" | col == "09" | col == "11") & (row == "A" | row == "B") , "F1_R1",
+                  ifelse((col == "13" | col == "15" | col == "17" | col == "19" | col == "21" | col == "23") & (row == "A" | row == "E") , "F2_R2",
+                  ifelse(row == "C" | row == "D" | (row == "B" & (col == "13" | col == "15" | col == "17" | col == "19" | col == "21" | col == "23")) | (row == "E" & (col == "01" | col == "03" | col == "05" | col == "07" | col == "09" | col == "11")), "F2_R1", "empty")))) %>% 
+  filter(Primer != "empty") %>% 
+  mutate(cDNA = ifelse(row == "A" | row == "B" | row == "E", 2, 
+                       ifelse((col == "13" | col == "15" | col == "17" | col == "19" | col == "21" | col == "23") & row == "D", 1.5, 
+                       ifelse((col == "01" | col == "03" | col == "05" | col == "07" | col == "09" | col == "11") & row == "D", 1.0, 
+                       ifelse((col == "13" | col == "15" | col == "17" | col == "19" | col == "21" | col == "23") & row == "C", 0.5, 
+                       ifelse((col == "01" | col == "03" | col == "05" | col == "07" | col == "09" | col == "11") & row == "C", 0, "empty")))))) %>% 
+  select(product, RT, Primer, cDNA, Cq) %>% 
+  mutate(Cq = ifelse(is.na(Cq), 40, Cq)) 
+ 
+```
+
+```{r, }
+cts_mean <- cts_tidy %>%
+  group_by(product, RT, Primer, cDNA) %>% 
+summarize(meanCq = mean(Cq), varCq = var(Cq))
+
+
+```
+
+```{r, }
+cts_tidy %>% filter(cDNA == 2) %>% ggplot(aes(product, -Cq, fill = RT)) + geom_boxplot() + geom_point(position = position_jitter(width = 0.1, height = 0.1)) + facet_grid(. ~ Primer)
+
+cts_tidy %>% filter(Primer == "F2_R1", product == "BioRad") %>% ggplot(aes(cDNA, -Cq, fill = RT)) + geom_boxplot()
+
+
+```
+
+

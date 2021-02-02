@@ -37,7 +37,7 @@ cts_tidy <- cts %>%
 ```{r,  plot}
 cts_tidy %>% ggplot(aes(Person, 2**-diff, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(y = "2^(ranbp1 - tsc1)")
 
-cts_tidy %>% select(row, Person, Fraction, diff) %>% mutate(diff = -diff) %>% spread(Fraction, diff) %>% mutate(LR = neurite - soma) %>%  ggplot(aes(Person, 2**LR, fill = Person)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(y = "2^((ranbp1 - tsc1 neurite) / (ranbp1 - tsc1 soma))")
+cts_tidy %>% select(row, Person, Fraction, diff) %>% mutate(diff = -diff) %>% spread(Fraction, diff) %>% mutate(LR = neurite - soma) %>%  ggplot(aes(Person, 2**-LR, fill = Person)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(y = "2^((ranbp1 - tsc1 neurite) / (ranbp1 - tsc1 soma))")
 
 cts_tidy %>% ggplot(aes(Person, -FAM, fill = Fraction)) + geom_boxplot() + geom_point(position = position_jitterdodge()) + theme_cowplot() + labs(title = "tsc1")
 
@@ -45,5 +45,65 @@ cts_tidy %>% ggplot(aes(Person, -HEX, fill = Fraction)) + geom_boxplot() + geom_
 
 ```
 
+```{r, Fractionation paper}
+gene_name <- c("HEX" = "Tsc1\n (soma marker)", "FAM" = "Ranbp1\n (neurite marker)")
+
+cts_tidy %>% 
+  gather(-row,-col,-Fraction,-Person,-diff,key = gene, value = cq) %>% 
+  select(-diff,-col) %>% 
+  spread(value = cq, key = Fraction) %>% 
+  mutate(LR = log2(2^(neurite-soma))) %>%
+  filter(Person != "RG") %>% 
+  ggplot(aes(x = Person, y = LR, fill = Person)) + 
+  geom_boxplot() + 
+  geom_point(position = "jitter") + 
+  theme_cowplot() + 
+  facet_grid(.~gene, labeller = as_labeller(gene_name)) + 
+  scale_x_discrete(labels = c("Sample 1", "Sample 2")) +
+  labs(x = "", y = "Localization Ratio, Log2\n (neurite / soma)") +
+  theme(strip.background = element_rect(color = "white", fill = "white")) + 
+  theme(text = element_text(size=20), axis.text = element_text(size = 15)) +
+  guides(fill = FALSE) +
+  scale_fill_manual(values = c("#b65657", "#62b1dc"))
+
+cts_tidy %>% 
+  gather(-row,-col,-Fraction,-Person,-diff,key = gene, value = cq) %>% 
+  select(-diff,-col) %>% 
+  spread(value = cq, key = Fraction) %>% 
+  mutate(LR = log2(2^(neurite-soma))) %>%
+  filter(Person != "RG") %>% 
+  ggplot(aes(x = gene, y = LR, col = gene)) +  
+  geom_point(position = "jitter", size = 3) + 
+  theme_cowplot() +
+  labs(x = "", y = "Localization Ratio, Log2\n (neurite / soma)") +
+  guides(col = FALSE) +
+  scale_color_manual(values = c("#b65657", "#62b1dc")) +
+  scale_x_discrete(labels = c("Ranbp1\n (neurite marker)", "Tsc1\n (soma marker)"))
+
+cts_tidy %>% 
+  filter(Person != "RG") %>% 
+  ggplot(aes(Fraction, 2**-diff, col = Fraction)) + 
+  geom_point(position = position_jitterdodge(jitter.width = 0.5), size = 4, pch = 21) + 
+  theme_cowplot() + 
+  labs(y = "2^(Ranbp1 - Tsc1)", x = "") +
+  scale_color_manual(values = c("#b65657", "#62b1dc")) +
+  guides(col = FALSE) + 
+  stat_compare_means(comparisons = list(c("neurite", "soma")), method = "wilcox.test")
+
+mean_soma <- cts_tidy %>% filter(Person != "RG", Fraction == "soma") %>% summarise(mean(2**diff, na.rm = TRUE)) %>% pull()
+
+cts_tidy %>% 
+    filter(Person != "RG") %>% 
+    ggplot(aes(Fraction, 2**diff/mean_soma, col = Fraction)) + 
+    geom_point(position = position_jitterdodge(jitter.width = 0.5), size = 4, pch = 21) + 
+    theme_cowplot() + 
+    labs(y = "2^(Tsc1 - Ranbp1), normalized", x = "") +
+    scale_color_manual(values = c("#b65657", "#62b1dc")) +
+    guides(col = FALSE) + 
+    stat_compare_means(comparisons = list(c("neurite", "soma")), method = "wilcox.test") +
+    scale_x_discrete(limits = c("soma", "neurite"), labels = c("Cell Body", "Neurite"))
+
+# Other color options in palette: #679968	(Green), #f4c34a (Yellow), #f3903b (Orange)
+```
 
 

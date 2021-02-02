@@ -1,0 +1,269 @@
+---
+title: "RP starvation"
+output: html_document
+---
+
+FF == VIC/HEX RE == FAM
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+```
+
+#QPCR data
+
+```{r, get qPCR data}
+cts <- read.table("admin_2021-01-25 08-54-32_CT022996 -  Quantification Cq Results.csv", header = TRUE, sep = ",")
+
+```
+
+```{r, organize qPCR}
+
+cts_tidy <- cts %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(cells = ifelse(row == "A" | row == "B" | row == "C", "Lox", 
+                         ifelse(row == "D" | row == "E" | row == "F", "RPL7",
+                                ifelse(row == "G" | row == "H" | row == "I", "RPL7mut", 
+                                       ifelse(row == "J" | row == "K" | row == "L", "FF", "empty"))))) %>% 
+  filter(cells != "empty") %>%
+  mutate(state = ifelse(col == "01" | col == "03" | col == "05", "normal",
+                        ifelse(col == "07" | col == "09" | col == "11", "fasting",
+                               ifelse(col == "13" | col == "15" | col == "17", "refed", "empty")))) %>% 
+  filter(state != "empty") %>% 
+  filter(Fluor == "FAM" | Fluor == "HEX") %>% 
+  select(row, col, Fluor, cells, state, Cq) %>% 
+  mutate(Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),72)) 
+
+#one well obvi got missed
+cts_tidy <- cts_tidy %>% filter(row != "L" | col != "01")
+
+
+cts_mean <- cts_tidy %>%
+  group_by(Fluor, cells, state, rep) %>% 
+summarize(meanCq = mean(Cq), varCq = var(Cq))
+
+```
+
+```{r, qPCR plots}
+cts_mean %>% ggplot(aes(x = cells, y = -meanCq, col = state)) + geom_point(size = 3, position = position_jitterdodge()) + facet_grid(.~Fluor) + theme_cowplot()
+
+cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% ggplot(aes(x = cells, y = 2^(-(FAM - HEX)), col = state)) + geom_point(size = 3, position = position_jitterdodge())  + theme_cowplot()
+
+cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% filter(cells != "Lox") %>% ggplot(aes(x = state, y = 2^(-(FAM - HEX)))) + geom_point(aes(col = cells, alpha = cells),size = 3, position = position_jitterdodge())  + theme_cowplot() + stat_compare_means(comparisons = list(c("normal", "fasting"), c("fasting", "refed"), c("normal", "refed")), method = "t.test") + facet_grid(.~cells) + scale_x_discrete(limits = c("normal", "fasting", "refed")) + guides(col = FALSE, alpha = FALSE) + labs(x = "", y = "Relative RNA Abundance\n (FF/RE)") + scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + scale_alpha_manual(values = c(1,1,0.5))  + theme(strip.background = element_rect(color = "white", fill = "white")) + theme(text = element_text(size=20), axis.text = element_text(size = 12.5))
+
+```
+
+```{r, qPCR norm}
+FF_ave <- cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% mutate(ratio = 2^(-(FAM - HEX))) %>% filter(cells == "FF", state == "normal") %>% summarize(mean(ratio, na.rm = TRUE)) %>% pull() %>% as.numeric()
+RP7_ave <- cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% mutate(ratio = 2^(-(FAM - HEX))) %>% filter(cells == "RPL7", state == "normal") %>% summarize(mean(ratio, na.rm = TRUE)) %>% pull() %>% as.numeric()
+RP7m_ave <- cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% mutate(ratio = 2^(-(FAM - HEX))) %>% filter(cells == "RPL7mut", state == "normal") %>% summarize(mean(ratio, na.rm = TRUE)) %>% pull() %>% as.numeric()
+
+cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% filter(cells != "Lox") %>% mutate(ratio = 2^(-(FAM - HEX))) %>% ggplot(aes(x = state, y = ratio / FF_ave)) + geom_point(aes(col = cells, alpha = cells),size = 3, position = position_jitterdodge())  + theme_cowplot() + stat_compare_means(comparisons = list(c("normal", "fasting"), c("fasting", "refed"), c("normal", "refed")), method = "t.test") + facet_grid(.~cells) + scale_x_discrete(limits = c("normal", "fasting", "refed")) + guides(col = FALSE, alpha = FALSE) + labs(x = "", y = "Relative RNA Abundance\n (FF/RE)", title = "all normalized to FF normal")  + scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + scale_alpha_manual(values = c(1,1,0.5))  + theme(strip.background = element_rect(color = "white", fill = "white")) + theme(text = element_text(size=20), axis.text = element_text(size = 12.5)) 
+
+cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% filter(cells != "Lox") %>% mutate(ratio = 2^(-(FAM - HEX)), norm = ifelse(cells == "FF", ratio / FF_ave, ifelse(cells == "RPL7", ratio / RP7_ave, ifelse(cells == "RPL7mut", ratio / RP7m_ave, "nothing")))) %>% ggplot(aes(x = state, y = norm)) + geom_point(aes(col = cells, alpha = cells),size = 3, position = position_jitterdodge())  + theme_cowplot() + stat_compare_means(comparisons = list(c("normal", "fasting"), c("fasting", "refed"), c("normal", "refed")), method = "t.test") + facet_grid(.~cells) + scale_x_discrete(limits = c("normal", "fasting", "refed")) + guides(col = FALSE, alpha = FALSE) + labs(x = "", y = "Relative RNA Abundance\n (FF/RE)", title = "each normalized to their own normal")  + scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + scale_alpha_manual(values = c(1,1,0.5))  + theme(strip.background = element_rect(color = "white", fill = "white")) + theme(text = element_text(size=20), axis.text = element_text(size = 12.5))
+
+```
+
+#Luciferase data
+
+```{r, }
+luc <- as_tibble(t(data.frame("PLB_normal_FF" = c(2.60E+01, 2.60E+01,   2.80E+01),
+       "FF_normal_FF" = c(1.28E+08, 1.01E+08,   1.02E+08),
+       "RPL7_normal_FF" = c(7.54E+07,   7.23E+07,   7.97E+07),
+       "RPL7mut_normal_FF" = c(4.00E+07,    4.64E+07,   4.73E+07),
+       "FF_6S2RF_FF" = c(1.04E+08,  9.34E+07,   8.19E+07),
+       "RPL7_6S2RF_FF" = c(6.34E+07,    5.87E+07,   7.25E+07),
+       "RPL7mut_6S2RF_FF" = c(2.76E+07, 2.96E+07, NA), #    3.58E+07),
+       "FF_8S_FF" = c(9.41E+07, 7.70E+07,   7.23E+07),
+       "RPL7_8S_FF" = c(5.48E+07,   5.35E+07,   5.07E+07),
+       "RPL7mut_8S_FF" = c(3.58E+07,    3.80E+07,   3.60E+07),
+       "PLB_normal_RE" = c(8.00E+01,    7.50E+01,   8.60E+01),
+       "FF_normal_RE" = c(2.73E+08, 2.46E+08,   2.58E+08),
+       "RPL7_normal_RE" = c(2.12E+08,   2.15E+08,   2.07E+08),
+       "RPL7mut_normal_RE" = c(2.11E+08,    2.30E+08,   2.53E+08),
+       "FF_6S2RF_RE" = c(2.08E+08,  2.14E+08,   1.89E+08),
+       "RPL7_6S2RF_RE" = c(1.61E+08,    1.52E+08,   1.89E+08),
+       "RPL7mut_6S2RF_RE" = c(1.26E+08, 1.28E+08, NA),  #,  7.59E+07),
+       "FF_8S_RE" = c(1.88E+08, 1.86E+08,   1.67E+08),
+       "RPL7_8S_RE" = c(1.45E+08,   1.44E+08,   1.39E+08),
+       "RPL7mut_8S_RE" = c(1.54E+08,    1.65E+08,   1.69E+08))), rownames = "sample")
+
+colnames(luc) <- c("sample", "rep1", "rep2", "rep3")
+
+
+```
+
+```{r, }
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+  gather(-cells,-prep,-luc, key = rep, value = value) %>% 
+  ggplot(aes(x = cells, y = value, col = prep)) + 
+  geom_point(position = position_jitter(width = 0.25), size = 4) + 
+  theme_cowplot() + 
+  facet_grid(.~luc)
+
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    ggplot(aes(x = prep, y = FF/RE)) + 
+    geom_point(aes(col = cells, alpha = cells),position = position_jitter(width = 0.25), size = 4) + 
+    theme_cowplot() + 
+    facet_grid(.~cells) +
+    scale_x_discrete(limits = c("normal", "8S", "6S2RF")) +
+    stat_compare_means(comparisons = list(c("normal", "8S"), c("8S", "6S2RF"), c("normal", "6S2RF")), method = "t.test") +
+  labs(x = "", y = "Relative Protein Abundance\n (FF/RE)") +
+  scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + 
+  scale_alpha_manual(values = c(1,1,0.5)) +
+  theme(strip.background = element_rect(color = "white", fill = "white")) + 
+  theme(text = element_text(size=20), axis.text = element_text(size = 12.5)) +
+  guides(col = FALSE, alpha = FALSE)
+
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    ggplot(aes(x = cells, y = FF/RE, col = factor(prep, levels = c("normal", "8S", "6S2RF")))) + 
+    geom_point(position = position_jitter(width = 0.25), size = 4) + 
+    theme_cowplot() + 
+    facet_grid(.~factor(prep, levels = c("normal", "8S", "6S2RF"))) +
+    stat_compare_means(comparisons = list(c("FF", "RPL7"), c("RPL7", "RPL7mut"), c("FF", "RPL7mut")), method = "t.test") +
+    guides(col = FALSE)
+
+```
+
+```{r, luc norm}
+FF_ave <- luc %>% separate(sample, into = c("cells", "prep", "luc")) %>%  gather(-cells,-prep,-luc, key = rep, value = value) %>% spread(luc,value) %>% mutate(ratio = FF/RE) %>% filter(cells == "FF", prep == "normal") %>% summarize(mean(ratio,na.rm = TRUE)) %>% pull() %>% as.numeric()
+RP7_ave <- luc %>% separate(sample, into = c("cells", "prep", "luc")) %>%  gather(-cells,-prep,-luc, key = rep, value = value) %>% spread(luc,value) %>% mutate(ratio = FF/RE) %>% filter(cells == "RPL7", prep == "normal") %>% summarize(mean(ratio,na.rm = TRUE)) %>% pull() %>% as.numeric()
+RP7m_ave <- luc %>% separate(sample, into = c("cells", "prep", "luc")) %>%  gather(-cells,-prep,-luc, key = rep, value = value) %>% spread(luc,value) %>% mutate(ratio = FF/RE) %>% filter(cells == "RPL7mut", prep == "normal") %>% summarize(mean(ratio,na.rm = TRUE)) %>% pull() %>% as.numeric()
+
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(ratio = FF/RE) %>% 
+    ggplot(aes(x = prep, y = ratio / FF_ave)) + 
+    geom_point(aes(col = cells, alpha = cells),position = position_jitter(width = 0.25), size = 4) + 
+    theme_cowplot() + 
+    facet_grid(.~cells) +
+    scale_x_discrete(limits = c("normal", "8S", "6S2RF")) +
+    stat_compare_means(comparisons = list(c("normal", "8S"), c("8S", "6S2RF"), c("normal", "6S2RF")), method = "t.test") +
+  labs(x = "", y = "Relative Protein Abundance\n (FF/RE)", title = "all normalized to FF normal") +
+  scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + 
+  scale_alpha_manual(values = c(1,1,0.5)) +
+  theme(strip.background = element_rect(color = "white", fill = "white")) + 
+  theme(text = element_text(size=20), axis.text = element_text(size = 12.5)) +
+  guides(col = FALSE, alpha = FALSE)
+
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(ratio = FF/RE, norm = ifelse(cells == "FF", ratio / FF_ave, ifelse(cells == "RPL7", ratio / RP7_ave, ifelse(cells == "RPL7mut", ratio / RP7m_ave, "nothing")))) %>% 
+    na.omit() %>% 
+    ggplot(aes(x = prep, y = as.numeric(norm))) + 
+    geom_point(aes(col = cells, alpha = cells),position = position_jitter(width = 0.25), size = 4) + 
+    theme_cowplot() + 
+    facet_grid(.~cells) +
+    scale_x_discrete(limits = c("normal", "8S", "6S2RF")) +
+    stat_compare_means(comparisons = list(c("normal", "8S"), c("8S", "6S2RF"), c("normal", "6S2RF")), method = "t.test") +
+  labs(x = "", y = "Relative Protein Abundance\n (FF/RE)", title = "each normalized to their normal") +
+  scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + 
+  scale_alpha_manual(values = c(1,1,0.5)) +
+  theme(strip.background = element_rect(color = "white", fill = "white")) + 
+  theme(text = element_text(size=20), axis.text = element_text(size = 12.5)) +
+  guides(col = FALSE, alpha = FALSE)
+
+
+```
+
+#woo altogether now!
+
+```{r, }
+qPCR <- cts_mean %>% select(-varCq) %>% spread(Fluor,meanCq) %>% filter(cells != "Lox") %>% mutate(RNA = 2^(-(FAM - HEX))) %>% group_by(cells,state) %>% summarize(mean_RNA = mean(RNA,na.rm = TRUE))
+
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(protein = FF/RE, state = ifelse(prep == "8S", "fasting", ifelse(prep == "6S2RF", "refed", "normal"))) %>% 
+  left_join(., qPCR) %>% 
+  ggplot(aes(x = state, y = protein / mean_RNA))  + 
+    geom_point(aes(col = cells, alpha = cells),position = position_jitter(width = 0.25), size = 4) + 
+    theme_cowplot() + 
+    facet_grid(.~cells) +
+  scale_x_discrete(limits = c("normal", "fasting", "refed")) +
+    stat_compare_means(comparisons = list(c("normal", "fasting"), c("fasting", "refed"), c("normal", "refed")), method = "t.test") +
+  labs(x = "", y = "Relative Protein / Relative RNA") +
+  scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + 
+  scale_alpha_manual(values = c(1,1,0.5)) +
+  theme(strip.background = element_rect(color = "white", fill = "white")) + 
+  theme(text = element_text(size=20), axis.text = element_text(size = 12.5)) +
+  guides(col = FALSE, alpha = FALSE)
+
+#normalize it
+FF_ave <-luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(protein = FF/RE, state = ifelse(prep == "8S", "fasting", ifelse(prep == "6S2RF", "refed", "normal"))) %>% 
+    left_join(., qPCR) %>%  mutate(ratio = protein/mean_RNA) %>% filter(cells == "FF", state == "normal") %>% summarize(mean(ratio,na.rm = TRUE)) %>% pull() %>% as.numeric()
+RPL7_ave <-luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(protein = FF/RE, state = ifelse(prep == "8S", "fasting", ifelse(prep == "6S2RF", "refed", "normal"))) %>% 
+    left_join(., qPCR) %>%  mutate(ratio = protein/mean_RNA) %>% filter(cells == "RPL7", state == "normal") %>% summarize(mean(ratio,na.rm = TRUE)) %>% pull() %>% as.numeric()
+RPL7m_ave <- luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(protein = FF/RE, state = ifelse(prep == "8S", "fasting", ifelse(prep == "6S2RF", "refed", "normal"))) %>% 
+    left_join(., qPCR) %>%  mutate(ratio = protein/mean_RNA) %>% filter(cells == "RPL7mut", state == "normal") %>% summarize(mean(ratio,na.rm = TRUE)) %>% pull() %>% as.numeric()
+
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(protein = FF/RE, state = ifelse(prep == "8S", "fasting", ifelse(prep == "6S2RF", "refed", "normal"))) %>% 
+    left_join(., qPCR) %>%  mutate(ratio = protein/mean_RNA) %>% 
+   ggplot(aes(x = state, y = ratio / FF_ave))  + 
+    geom_point(aes(col = cells, alpha = cells),position = position_jitter(width = 0.25), size = 4) + 
+    theme_cowplot() + 
+    facet_grid(.~cells) +
+  scale_x_discrete(limits = c("normal", "fasting", "refed")) +
+    stat_compare_means(comparisons = list(c("normal", "fasting"), c("fasting", "refed"), c("normal", "refed")), method = "t.test") +
+  labs(x = "", y = "Relative Protein / Relative RNA") +
+  scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + 
+  scale_alpha_manual(values = c(1,1,0.5)) +
+  theme(strip.background = element_rect(color = "white", fill = "white")) + 
+  theme(text = element_text(size=20), axis.text = element_text(size = 12.5)) +
+  guides(col = FALSE, alpha = FALSE)
+
+luc %>% separate(sample, into = c("cells", "prep", "luc")) %>% 
+    gather(-cells,-prep,-luc, key = rep, value = value) %>%
+    spread(luc,value) %>%  
+    filter(cells != "PLB") %>% 
+    mutate(protein = FF/RE, state = ifelse(prep == "8S", "fasting", ifelse(prep == "6S2RF", "refed", "normal"))) %>% 
+    left_join(., qPCR) %>%  mutate(ratio = protein/mean_RNA, norm = ifelse(cells == "FF", ratio / FF_ave, ifelse(cells == "RPL7", ratio / RPL7_ave, ifelse(cells == "RPL7mut", ratio / RPL7m_ave, "nothing")))) %>% 
+  na.omit() %>% 
+   ggplot(aes(x = state, y = as.numeric(norm)))  + 
+    geom_point(aes(col = cells, alpha = cells),position = position_jitter(width = 0.25), size = 4) + 
+    theme_cowplot() + 
+    facet_grid(.~cells) +
+  scale_x_discrete(limits = c("normal", "fasting", "refed")) +
+    stat_compare_means(comparisons = list(c("normal", "fasting"), c("fasting", "refed"), c("normal", "refed")), method = "t.test") +
+  labs(x = "", y = "Relative Protein / Relative RNA") +
+  scale_color_manual(values = c("#808080", "#e8c040", "#e8c040")) + 
+  scale_alpha_manual(values = c(1,1,0.5)) +
+  theme(strip.background = element_rect(color = "white", fill = "white")) + 
+  theme(text = element_text(size=20), axis.text = element_text(size = 12.5)) +
+  guides(col = FALSE, alpha = FALSE)
+
+
+  
+
+```
