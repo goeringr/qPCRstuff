@@ -1,0 +1,131 @@
+---
+title: "HeLa LMB"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+```
+
+VIC/HEX == FF
+FAM == RE
+
+```{r, get qPCR data}
+cts1 <- as_tibble(read.table("admin_2021-04-22 11-20-47_CT022996 -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")) %>% mutate(plate = "1")
+cts2 <- as_tibble(read.table("admin_2021-04-22 16-07-13_CT022996 -  Quantification Cq Results.csv", header = TRUE, sep = ",")) %>% mutate(plate = "2")
+cts3 <- as_tibble(read.table("admin_2021-04-28 17-01-06_796BR02132.csv", header = TRUE, sep = ",")) %>% mutate(plate = "3")
+
+cts <- bind_rows(cts1, cts2, cts3)
+```
+
+```{r, }
+cts_tidy <- cts %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(biorep = ifelse(row == "A" | row == "B" | row == "C" & plate == "1", "1",
+                         ifelse(row == "A" | row == "B" | row == "C" & plate == "2", "2", 
+                                ifelse(row == "D" | row == "E" | row == "F" & plate == "2", "3",
+                                       ifelse(row == "A" | row == "B" | row == "C" & plate == "3", "4",
+                                              ifelse(row == "D" | row == "E" | row == "F" & plate == "3", "5",
+                                                     ifelse(row == "G" | row == "H" | row == "I" & plate == "3", "6","empty"))))))) %>% 
+  filter(biorep != "empty") %>%
+  mutate(LMB = ifelse(col == "01" | col == "03" | col == "05" | col == "07" | col == "09" | col == "11", "pos",
+                        ifelse(col == "02" | col == "04" | col == "06" | col == "08" | col == "10" | col == "12", "neg", "empty"))) %>% 
+  filter(LMB != "empty") %>% 
+  mutate(gene = ifelse(col == "01" | col == "02" | col == "07" | col == "08", "ARID2", 
+                       ifelse(col == "03" | col == "04" | col == "09" | col == "10", "LRRC8",
+                               ifelse(col == "05" | col == "06" | col == "11" | col == "12", "FF", "empty")))) %>% 
+  filter(gene != "empty") %>% 
+  mutate(fraction = ifelse(col == "01" | col == "02" | col == "03" | col == "04" | col == "05" | col == "06", "cytoplasmic", 
+                       ifelse(col == "07" | col == "08" | col == "09" | col == "10" | col == "11" | col == "12", "nuclear", "empty"))) %>% 
+  filter(fraction != "empty") %>% 
+  filter(Fluor == "FAM" | Fluor == "HEX") %>% 
+  select(plate,row, col, Fluor,biorep, gene, LMB, fraction, Cq) %>% 
+  mutate(#Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),nrow(.)/3)) %>% 
+  na.omit()
+
+cts_mean <- cts_tidy %>% group_by(Fluor,biorep,gene,LMB,fraction) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) 
+
+```
+
+```{r, }
+cts_mean %>% ggplot(aes(x = LMB, y = -mean_Cq, col = fraction, shape = biorep)) + geom_point(position = "jitter") + facet_grid(Fluor~gene, scales = "free") + theme_cowplot()
+
+
+cts_mean %>% spread(Fluor, mean_Cq) %>% ggplot(aes(x = fraction, y = 2^(-(HEX - FAM)))) + geom_point(position = "jitter") + stat_compare_means(comparisons = list(c("nuclear", "cytoplasmic")), method = "t.test") + facet_grid(LMB~gene) + theme_cowplot()
+
+cts_mean %>% spread(Fluor, mean_Cq) %>% mutate(`FF/RE` = 2^(-(HEX - FAM))) %>% select(-FAM,-HEX) %>% spread(fraction,`FF/RE`) %>% ggplot(aes(x = LMB, y = nuclear/cytoplasmic, col = gene)) + geom_point(position = "jitter") + stat_compare_means(comparisons = list(c("pos", "neg")), method = "t.test") + facet_grid(.~gene) + theme_cowplot() + guides(col = FALSE)
+
+
+cts_mean %>% spread(Fluor, mean_Cq) %>% mutate(`FF/RE` = 2^(-(HEX - FAM))) %>% select(-FAM,-HEX) %>% spread(LMB,`FF/RE`) %>% ggplot(aes(x = fraction, y = pos/neg, col = gene, group = biorep)) + geom_point() + geom_line() + stat_compare_means(comparisons = list(c("nuclear", "cytoplasmic")), method = "t.test", paired = TRUE) + facet_grid(.~gene) + theme_cowplot() + guides(col = FALSE)
+
+```
+
+```{r, }
+cts_mean %>% spread(Fluor, mean_Cq) %>% filter(fraction == "nuclear") %>% ggplot(aes(x = LMB, y = 2^(-(HEX - FAM)), col = gene, shape = biorep, group = biorep)) + geom_point() + geom_line() + stat_compare_means(comparisons = list(c("neg", "pos")), method = "t.test") + facet_grid(.~gene) + theme_cowplot() + ggtitle("just nuclear") + guides(shape = FALSE, col = FALSE)
+
+cts_mean %>% spread(Fluor, mean_Cq) %>% filter(fraction == "cytoplasmic") %>% ggplot(aes(x = LMB, y = 2^(-(HEX - FAM)), col = gene, shape = biorep, group = biorep)) + geom_point() + geom_line() + stat_compare_means(comparisons = list(c("neg", "pos")), method = "t.test") + facet_grid(.~gene) + theme_cowplot() + ggtitle("just cytoplamic") + guides(shape = FALSE, col = FALSE)
+
+```
+
+
+###SYBR qPCR for Lox Fractionation
+
+```{r, }
+cqs <- read.csv("/Users/raegoering/Documents/TaliaferroLab/qPCRstuff/admin_2021-05-11 18-00-18_796BR02132 -  Quantification Cq Results.csv", header = TRUE)
+
+```
+
+```{r, }
+cqs_tidy <- cqs %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(biorep = ifelse(row == "A" | row == "D" | row == "G" | row == "J" | row == "K" | row == "L", "1",
+                         ifelse(row == "B" | row == "E" | row == "H", "2", 
+                                ifelse(row == "C" | row == "F" | row == "I", "3", "empty")))) %>% 
+  filter(biorep != "empty") %>%
+  mutate(LMB = ifelse(col == "01" | col == "02" | col == "03" | col == "07" | col == "08" | col == "09" | col == "13" | col == "14" | col == "15", "pos",
+                        ifelse(col == "04" | col == "05" | col == "06" | col == "10" | col == "11" | col == "12" | col == "16" | col == "17" | col == "18", "neg", "empty"))) %>% 
+  filter(LMB != "empty") %>% 
+  mutate(gene = ifelse(row == "A" | row == "B" | row == "C" | row == "J", "ARID2", 
+                       ifelse(row == "D" | row == "E" | row == "F" | row == "K", "LRRC8",
+                               ifelse(row == "G" | row == "H" | row == "I" | row == "L", "HPRT", "empty")))) %>% 
+  filter(gene != "empty") %>% 
+  mutate(fraction = ifelse(col == "01" | col == "02" | col == "03" | col == "04" | col == "05" | col == "06", "cytoplasmic", 
+                       ifelse(col == "07" | col == "08" | col == "09" | col == "10" | col == "11" | col == "12", "nuclear", 
+                              ifelse(col == "13" | col == "14" | col == "15" | col == "16" | col == "17" | col == "18", "total", "empty")))) %>% 
+  filter(fraction != "empty")  %>%
+  mutate(RT = ifelse(row == "J" | row == "K" | row == "L", "-RT", "+RT")) %>% 
+  select(row, col,biorep, gene, LMB, fraction,RT, Cq) %>% 
+  mutate(Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),72)) 
+
+cqs_mean <- cqs_tidy %>% group_by(biorep,gene,LMB,fraction,RT) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) 
+
+```
+
+```{r, }
+cqs_tidy %>% ggplot(aes(x = RT, y = -Cq, col = gene, shape = fraction)) + geom_point(position = "jitter") + theme_cowplot() + facet_grid(.~gene)
+
+cqs_tidy %>% filter(RT == "+RT") %>% ggplot(aes(x = LMB, y = -Cq, col = gene, shape = fraction)) + geom_point(position = "jitter") + theme_cowplot() + facet_grid(.~gene)
+
+cqs_mean %>% filter(RT == "+RT") %>% spread(gene, mean_Cq) %>% mutate(ARID_norm = 2^(-(ARID2 - HPRT)), LRRC8_norm = 2^(-(LRRC8 - HPRT))) %>% select(biorep,LMB, fraction, ARID_norm, LRRC8_norm) %>% gather(ARID_norm, LRRC8_norm, key = gene,value = norm_cq) %>% ggplot(aes(x = LMB, y = norm_cq)) + geom_boxplot(aes(fill = gene)) + geom_point(aes(fill = gene, shape = fraction)) + stat_compare_means(comparisons = list(c("pos", "neg")), method = "t.test") + theme_cowplot() + guides(fill = FALSE, shape = FALSE) + facet_wrap(gene~fraction, scales = "free_y") + scale_x_discrete(limits = c("pos","neg"))
+
+cqs_mean %>% filter(RT == "+RT") %>% spread(gene, mean_Cq) %>% mutate(ARID_norm = 2^(-(ARID2 - HPRT)), LRRC8_norm = 2^(-(LRRC8 - HPRT))) %>% select(biorep,LMB, fraction, ARID_norm, LRRC8_norm) %>% gather(ARID_norm, LRRC8_norm, key = gene,value = norm_cq) %>% spread(fraction,norm_cq) %>% ggplot(aes(x = LMB, y = nuclear/cytoplasmic)) + geom_boxplot(aes(fill = gene)) + geom_point() + geom_line(aes(group = biorep)) + stat_compare_means(comparisons = list(c("pos", "neg")), paired = TRUE, method = "t.test") + theme_cowplot() + guides(fill = FALSE) + facet_wrap(.~gene, scales = "free_y") + scale_x_discrete(limits = c("pos","neg"))
+
+cqs_mean %>% filter(RT == "+RT") %>% spread(gene, mean_Cq) %>% mutate(ARID_norm = 2^(-(ARID2 - HPRT)), LRRC8_norm = 2^(-(LRRC8 - HPRT))) %>% select(biorep,LMB, fraction, ARID_norm, LRRC8_norm) %>% gather(ARID_norm, LRRC8_norm, key = gene,value = norm_cq) %>% spread(fraction,norm_cq) %>% ggplot(aes(x = LMB, y = nuclear/total)) + geom_boxplot(aes(fill = gene)) + geom_point() + geom_line(aes(group = biorep)) + stat_compare_means(comparisons = list(c("pos", "neg")), paired = TRUE, method = "t.test") + theme_cowplot() + guides(fill = FALSE) + facet_wrap(.~gene, scales = "free_y") + scale_x_discrete(limits = c("pos","neg"))
+
+
+```
+
+```{r, }
+cqs_mean %>% filter(RT == "+RT") %>% spread(gene, mean_Cq) %>% mutate(ARID_norm = 2^(-(ARID2 - HPRT)), LRRC8_norm = 2^(-(LRRC8 - HPRT))) %>% select(biorep,LMB, fraction, ARID_norm, LRRC8_norm) %>% gather(ARID_norm, LRRC8_norm, key = gene,value = norm_cq) %>% ggplot(aes(x = fraction, y = norm_cq)) + geom_boxplot(aes(fill = gene)) + geom_point(aes(fill = gene, shape = LMB)) + stat_compare_means(comparisons = list(c("cytoplasmic", "nuclear"), c("cytoplasmic", "total"), c("nuclear", "total")), method = "t.test") + theme_cowplot() + guides(fill = FALSE, shape = FALSE) + facet_wrap(gene~LMB) 
+
+
+cqs_mean %>% filter(RT == "+RT") %>% spread(gene, mean_Cq) %>% mutate(ARID_norm = 2^(-(ARID2 - HPRT)), LRRC8_norm = 2^(-(LRRC8 - HPRT))) %>% select(biorep,LMB, fraction, ARID_norm, LRRC8_norm) %>% gather(ARID_norm, LRRC8_norm, key = gene,value = norm_cq) %>% spread(LMB,norm_cq) %>% ggplot(aes(x = fraction, y = pos/neg)) + geom_boxplot(aes(fill = gene)) + geom_point() + geom_line(aes(group = biorep)) + stat_compare_means(comparisons = list(c("cytoplasmic", "nuclear"), c("cytoplasmic", "total"), c("nuclear", "total")), paired = TRUE, method = "t.test") + theme_cowplot() + guides(fill = FALSE) + facet_wrap(.~gene, scales = "free_y")
+```
+

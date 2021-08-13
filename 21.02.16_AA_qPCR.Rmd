@@ -1,0 +1,55 @@
+---
+title: "21.02.16_AA_qPCR"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+```
+
+#QPCR data
+
+```{r, get qPCR data}
+cts <- as_tibble(t(data.frame("Diras_Soma" = c(1.307027428,	1.96310212,	1.376858959),
+       "Diras_Neurite" = c(27.92792607,	24.72634149,	22.28756782),
+       "Ksr2_Soma" = c(1.134935027,	1.354482341,	1.278847909),
+       "Ksr2_Neurite" = c(19.33854814,	17.2780075,	21.28709014),
+       "Wasf3_Soma" = c(1.326890057,	2.326624356,	1.294921114),
+       "Wasf3_Neurite" = c(31.13120205,	23.65270396,	38.80428941), 
+       "AcsI_Soma" = c(0.952643897,	1.392419717,	0.963069762),
+       "AcsI_Neurite" = c(1.078369448,	1.146053665,	1.922887534))), rownames = "sample")
+
+colnames(cts) <- c("sample", "rep1", "rep2", "rep3")
+
+
+```
+
+```{r, organize qPCR}
+
+cts_tidy <- cts %>%
+  gather(-sample, key = rep, value = Cq)
+
+cts_mean <- cts_tidy %>%
+  group_by(sample) %>% 
+summarize(meanCq = mean(Cq), varCq = var(Cq))
+
+```
+
+```{r, qPCR plots}
+cts_tidy %>% 
+  separate(sample, into = c("gene", "fraction"), sep = "_") %>% 
+  ggplot(aes(x = fraction, y = Cq, col = gene)) + 
+  geom_point(size = 3, position = position_jitterdodge()) + 
+  theme_cowplot() + 
+  stat_compare_means(comparisons = list(c("Soma", "Neurite")), method = "t.test") + 
+  facet_grid(.~gene) + 
+  labs(x = "Fraction", y = "ddcts (KO/WT)") + 
+  guides(col = FALSE) +
+  theme(strip.background = element_rect(color = "white", fill = "white")) +
+  theme(text = element_text(size=20), axis.text = element_text(size = 12.5))
+
+```
+

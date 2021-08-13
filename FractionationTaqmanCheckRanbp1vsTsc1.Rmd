@@ -11,7 +11,7 @@ library(ggpubr)
 ```
 
 ```{r, get data}
-cts <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/20.01.08_RG_SNchk -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")
+cts <- read.table("20.01.08_RG_SNchk -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")
 
 ```
 

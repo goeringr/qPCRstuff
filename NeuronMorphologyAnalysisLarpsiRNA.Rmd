@@ -1,0 +1,74 @@
+---
+title: "NeuronMorphology_LarpsiRNA"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+library(viridis)
+```
+
+```{r, }
+Neurons <- tibble(siRNA = c("NC1", "none", "Larp1", "Ssb", "Larp4", "Larp7"),
+                  Neurite = c(44,52,40,68,78,58),
+                  noNeurite = c(68,85,137,37,23,51))
+
+NeuronLength <- read.csv("NeuronJ_morphologyAnalysis/NeuronLength.csv", header = TRUE)
+
+```
+
+```{r, categorical first}
+Neurons %>% gather(Neurite, noNeurite, key = morphology, value = number_of_cells) %>% 
+  ggballoonplot(x = "morphology", y = "siRNA", fill = "number_of_cells") +
+  scale_fill_viridis_c(option = "C")
+
+Neurons %>% mutate(total = Neurite + noNeurite, Neurite_pct = Neurite/total, noNeurite_pct = noNeurite/total) %>% 
+  select(siRNA,Neurite_pct, noNeurite_pct) %>% 
+  gather(Neurite_pct, noNeurite_pct, key = morphology, value = freq) %>% 
+  ggballoonplot(x = "morphology", y = "siRNA", fill = "freq") +
+  scale_fill_viridis_c(option = "C")
+
+count_dat <- Neurons %>% gather(Neurite,noNeurite, key = Morphology, value = Count)
+pct_dat <- Neurons %>% mutate(total = Neurite + noNeurite, Neurite = Neurite/total * 100, noNeurite = noNeurite/total * 100) %>% gather(Neurite,noNeurite,key = Morphology, value = pct) %>% select(-total)
+label_dat <- left_join(count_dat,pct_dat) %>% mutate(Morphology = ifelse(Morphology == "noNeurite", "no Neurite", Morphology))
+
+p_dat <- Neurons %>% rowwise() %>% 
+    mutate(matrix = list(c(Neurite, 44, noNeurite, 68)),
+           fisher = fisher.test(matrix(unlist(matrix),nrow =2))$p.value,
+           label = ifelse(fisher < 0.001, "***", ifelse(fisher < 0.01, "**", ifelse(fisher < 0.05, "*", ""))))
+
+Neurons %>% 
+    mutate(total = Neurite + noNeurite, Neurite = Neurite/total * 100, `no Neurite` = noNeurite/total * 100) %>% 
+    select(siRNA,Neurite, `no Neurite`) %>% 
+    gather(Neurite, `no Neurite`, key = Morphology, value = freq) %>% 
+    ggplot(aes(x = siRNA, y = freq, fill = siRNA, alpha = Morphology)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    theme_cowplot() + 
+    labs(x = "", y = "Percentage of cells (%)") +
+    geom_text(data = label_dat, aes(x = siRNA, y = pct+2, label = as.character(Count), alpha = Morphology), position = position_dodge(width = 0.75), col = "Black") + 
+    geom_text(data = p_dat, aes(x = siRNA, y = -3, label = label), inherit.aes = FALSE, size = 8) +
+    scale_x_discrete(limits = c("none", "NC1","Ssb", "Larp1", "Larp4", "Larp7")) + 
+  scale_fill_manual(values = c("#aeadf0", "#b4668a", "#7296ba", "#625d48", "#625d48", "#7dcdb6")) +
+    scale_alpha_manual(values = c(1,0.5)) +
+  guides(fill = FALSE)
+
+Neurons %>% rowwise() %>% 
+    mutate(matrix = list(c(Neurite, 44, noNeurite, 68)),
+           fisher = fisher.test(matrix(unlist(matrix),nrow =2))$p.value )
+
+# Neurons %>% rowwise() %>% 
+#     mutate(matrix = list(c(Neurite, 44, noNeurite, 68)),
+#            fisher = fisher.test(matrix(unlist(matrix),nrow =2), alternative = "less")$p.value )
+
+```
+
+```{r, }
+comps <- list(c("NC1", "Ssb"), c("NC1", "Larp1"), c("NC1", "Larp4"), c("NC1", "Larp7"), c("NC1", "none"))
+
+NeuronLength %>% ggplot(aes(x = siRNA, y = length, fill = siRNA)) + geom_violin(draw_quantiles = 0.5) + geom_point(alpha = 0.5, position = "jitter") + theme_cowplot() + guides(fill = FALSE) + stat_compare_means(comparisons = comps, test = t.test) + scale_x_discrete(limits = c("none", "NC1","Ssb", "Larp1", "Larp4", "Larp7")) + scale_fill_manual(values = c("#aeadf0", "#b4668a", "#7296ba", "#625d48", "#625d48", "#7dcdb6")) + labs(x = "", y = "Neurite Length (um)")
+
+```
+

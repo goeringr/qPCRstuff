@@ -12,9 +12,9 @@ library(ggpubr)
 
 
 ```{r, get data}
-cts1 <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/CAD ZBP1 endo genes2019-12-13 -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")
+cts1 <- read.table("CAD ZBP1 endo genes2019-12-13 -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")
 
-cts2 <- read.table("file:///C:/Users/rgoer/Documents/qPCR stuff/20.02.19_RG_more_ZBP1 -  Quantification Summary_0.csv", header = TRUE, sep = ",")
+cts2 <- read.table("20.02.19_RG_more_ZBP1 -  Quantification Summary_0.csv", header = TRUE, sep = ",")
 
 ```
 

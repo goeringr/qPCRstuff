@@ -1,0 +1,30 @@
+---
+title: "quantSeq library prep"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+```
+
+### A1 = OINC +
+### A2 = OINC -
+### A3 = HaLo Input
+### A4 = HaLo eluate
+
+```{r, }
+cycles <- as_tibble(read.csv("/Users/raegoering/Documents/TaliaferroLab/qPCRstuff/admin_2021-06-22 15-08-48_796BR02132 -  Quantification Amplification Results_SYBR.csv", header = TRUE)) %>% select(Cycle, A1,A2,A3,A4)
+
+#as_tibble(read.csv("/Users/raegoering/Documents/TaliaferroLab/qPCRstuff/admin_2021-06-22 15-08-48_796BR02132 -  End Point Results_SYBR.csv", header = TRUE))
+```
+
+```{r, }
+cycles %>% gather(-Cycle, key = well, value = sybr) %>% ggplot(aes(x = Cycle, y = sybr, col = well)) + geom_line() + theme_cowplot()
+
+hline_dat <- cycles %>% gather(-Cycle, key = well, value = sybr) %>% filter(Cycle == 1 | Cycle == 35) %>% spread(Cycle, sybr) %>% mutate(halfpt = (`35` - `1`)/2)
+
+cycles %>% gather(-Cycle, key = well, value = sybr) %>% ggplot(aes(x = Cycle, y = sybr, col = well)) + geom_line() + theme_cowplot() + geom_hline(data = hline_dat, yintercept = halfpt, col = well) + xlim(16,20)
+
+```

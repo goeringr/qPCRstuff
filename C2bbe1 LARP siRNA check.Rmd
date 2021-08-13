@@ -1,0 +1,332 @@
+---
+title: "C2bbe1_Larp_siRNAtest"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+```
+
+VIC/HEX == FF
+FAM == RE 
+
+## C2bbe1 cells were differentiated for 7 days. Transfected with LARP siRNAs on day -4 or day -2
+
+```{r, get qPCR data}
+cts <- as_tibble(read.table("admin_2021-06-18 14-45-14_796BR02132 -  Quantification Cq Results.csv", header = TRUE, sep = ",")) 
+cts2 <- as_tibble(read.table("admin_2021-06-28 15-15-53_796BR02132 -  Quantification Cq Results.csv", header = TRUE, sep = ",")) 
+```
+
+```{r, }
+cts_tidy <- cts %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(gene = ifelse(row %in% c("A", "B", "C"), "HPRT",
+                ifelse(row %in% c("D", "E", "F"), "SSB",
+                ifelse(row %in% c("G", "H", "I"), "LARP1",
+                ifelse(row %in% c("J", "K", "L"), "LARP6",
+                ifelse(row %in% c("M", "N", "O"), "LARP7", "empty")))))) %>% 
+  filter(gene != "empty") %>%
+  mutate(siRNA = ifelse(col %in% c("01", "06"), "SSB",
+                 ifelse(col %in% c("02", "07"), "LARP1",
+                 ifelse(col %in% c("03", "08"), "LARP6",
+                 ifelse(col %in% c("04", "09"), "LARP7",
+                 ifelse(col %in% c("05", "10"), "NC", "empty")))))) %>% 
+  filter(siRNA != "empty") %>% 
+  mutate(trsfx_day = ifelse(col %in% c("01", "02", "03", "04", "05"), "-4", 
+                     ifelse(col %in% c("06", "07", "08", "09", "10"), "-2", "empty"))) %>% 
+  filter(trsfx_day != "empty") %>% 
+  select(row, col, gene, siRNA, trsfx_day, Cq) %>% 
+  mutate(#Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),nrow(.)/3)) %>% 
+  na.omit()
+
+#not sure why there was signal in these columns
+cts_tidy <- cts_tidy %>% filter(!(row == "F" & col == "04"), 
+                      !(row == "F" & col == "08"),
+                      !(row == "D" & col == "08"),
+                      !(row == "E" & col == "07"),
+                      !(row == "E" & col == "08"),
+                      !(row == "E" & col == "09"),
+                      !(row == "I" & col == "04"),
+                      !(row == "J" & col == "04"),
+                      !(row == "J" & col == "06"),
+                      !(row == "J" & col == "09"),
+                      !(row == "N" & col == "08"))
+
+cts_mean <- cts_tidy %>% group_by(gene,siRNA, trsfx_day) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = ""))
+
+cts_tidy2 <- cts2 %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(gene = ifelse(row %in% c("A", "B", "C"), "HPRT",
+                ifelse(row %in% c("D", "E", "F"), "SSB",
+                ifelse(row %in% c("G", "H", "I"), "LARP1",
+                ifelse(row %in% c("J", "K", "L"), "LARP6",
+                ifelse(row %in% c("M", "N", "O"), "LARP7", "empty")))))) %>% 
+  filter(gene != "empty") %>%
+  mutate(siRNA = ifelse(col %in% c("01", "06"), "SSB",
+                 ifelse(col %in% c("02", "07", "11", "12"), "LARP1",
+                 ifelse(col %in% c("03", "08"), "LARP6",
+                 ifelse(col %in% c("04", "09"), "LARP7",
+                 ifelse(col %in% c("05", "10", "13", "14"), "NC", "empty")))))) %>% 
+  filter(siRNA != "empty") %>% 
+  mutate(trsfx_day = ifelse(col %in% c("01", "02", "03", "04", "05"), "00", 
+                     ifelse(col %in% c("06", "07", "08", "09", "10"), "-7",
+                     ifelse(col %in% c("11", "13"), "-4",
+                     ifelse(col %in% c("12", "14"), "-2", "empty"))))) %>% 
+  filter(trsfx_day != "empty") %>% 
+  select(row, col, gene, siRNA, trsfx_day, Cq) %>% 
+  mutate(#Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),nrow(.)/3)) %>% 
+  na.omit()
+
+cts_mean2 <- cts_tidy2 %>% group_by(gene,siRNA, trsfx_day) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = ""))
+
+cts_tidy_all <- cts_tidy %>% filter(gene != "LARP1") %>% rbind(cts_tidy2)
+cts_mean_all <- cts_mean %>% filter(gene != "LARP1") %>% rbind(cts_mean2)
+```
+
+```{r, plate view}
+
+# cts_tidy2 %>% 
+#   ggplot(aes(col, row)) +
+#   geom_tile(aes(fill = Cq)) + 
+#   geom_text(aes(label = round(Cq, 1))) +
+#   scale_fill_gradient(low = "red", high = "white") +
+#   scale_y_discrete(limits=rev) + 
+#   facet_grid(.~plate)
+```
+
+```{r, }
+cts_mean_all %>% ggplot(aes(x = siRNA_id, y = -mean_Cq, col = siRNA, shape = trsfx_day)) + geom_point(position = "jitter") + facet_grid(.~gene, scales = "free") + theme_cowplot()
+
+cts_tidy_all %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = "")) %>% ggplot(aes(x = siRNA_id, y = -Cq, col = siRNA, shape = trsfx_day)) + geom_point(position = "jitter") + facet_grid(.~gene, scales = "free") + theme_cowplot()
+
+comps <- list(c("NC", "LARP1"), c("NC", "LARP6"), c("NC", "LARP7"), c("NC", "SSB"), c("NC", "LARP1"), c("NC", "LARP6"), c("NC", "LARP7"), c("NC", "SSB"))
+
+cts_mean_all %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = ""))  %>% spread(gene, mean_Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = mean_Cq) %>% na.omit() %>% ggplot(aes(x = siRNA, y = 2^(-(mean_Cq - HPRT)), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(trsfx_day~gene, scale = "free", nrow = 4)
+
+cts_tidy_all %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = "")) %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% ggplot(aes(x = siRNA, y = 2^(-(Cq - HPRT)), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(trsfx_day~gene, scales = "free", nrow = 4) + stat_compare_means(comparisons = comps, method = "t.test") + guides(col = FALSE)
+
+NC_norm <- cts_tidy_all %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = "")) %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% group_by(gene, siRNA_id) %>% summarise(Hprt_norm = Hprt_norm, mean_Hprt_norm = mean(Hprt_norm)) %>% ungroup() %>%  filter(siRNA_id %in% c("NC-4", "NC-2", "NC-7", "NC00")) %>% mutate(siRNA = substr(siRNA_id, 1, nchar(siRNA_id)-2), trsfx_day = substr(siRNA_id, nchar(siRNA_id)-1, nchar(siRNA_id))) %>% select(gene, siRNA, trsfx_day, mean_Hprt_norm) %>% unique()
+
+mean_dat <- cts_tidy_all %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = "")) %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% left_join(., NC_norm, by = c("gene", "trsfx_day")) %>% mutate(relKD = 100 - (Hprt_norm/mean_Hprt_norm * 100)) %>% ungroup() %>% group_by(siRNA.x,gene,trsfx_day) %>% summarise(mean_relKD = mean(relKD)) #%>% rename(c("siRNA" = "siRNA.x"))
+
+cts_tidy_all %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = "")) %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% left_join(., NC_norm, by = c("gene", "trsfx_day")) %>% ggplot(aes(x = siRNA.x, y = 100 - (Hprt_norm/mean_Hprt_norm * 100), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(trsfx_day~gene, scales = "free", nrow = 4) + guides(col = FALSE) + labs(x = "", y = "Relative Percent Knockdown") + geom_text(aes(y = -0.1, label = round(mean_relKD,1)), data = mean_dat)
+
+```
+
+## C2bbe1 cells were differentiated for 10 days. Transfected with LARP siRNAs on day -10
+
+```{r, get qPCR data again}
+cts <- as_tibble(read.table("admin_2021-08-02 14-43-38_796BR02132 -  Quantification Cq Results.csv", header = TRUE, sep = ",")) 
+```
+
+```{r, }
+cts_tidy <- cts %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(gene = ifelse(row %in% c("A", "B", "C"), "HPRT",
+                ifelse(row %in% c("D", "E", "F"), "SSB",
+                ifelse(row %in% c("G", "H", "I"), "LARP1",
+                ifelse(row %in% c("J", "K", "L"), "LARP6",
+                ifelse(row %in% c("M", "N", "O"), "LARP7", "empty")))))) %>% 
+  filter(gene != "empty") %>%
+  mutate(siRNA = ifelse(col == "01", "SSB",
+                 ifelse(col == "02", "LARP1",
+                 ifelse(col == "03", "LARP6",
+                 ifelse(col == "04", "LARP7",
+                 ifelse(col == "05", "NC1",
+                 ifelse(col == "07", "Ssb",
+                 ifelse(col == "08", "Larp1",
+                 ifelse(col == "09", "Larp4",
+                 ifelse(col == "10", "Larp7",
+                 ifelse(col == "11", "NC1", "empty"))))))))))) %>% 
+  filter(siRNA != "empty") %>% 
+  mutate(cells = ifelse(col %in% c("01", "02", "03", "04", "05"), "C2bbe1", 
+                     ifelse(col %in% c("07", "08", "09", "10", "11"), "CAD", "empty"))) %>% 
+  filter(cells != "empty") %>% 
+  select(row, col, cells, gene, siRNA, Cq) %>% 
+  mutate(#Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),nrow(.)/3)) %>% 
+  na.omit()
+
+# Plate View
+cts_tidy %>% 
+  ggplot(aes(col, row)) +
+  geom_tile(aes(fill = Cq)) + 
+  geom_text(aes(label = round(Cq, 1))) +
+  scale_fill_gradient(low = "red", high = "white") +
+  scale_y_discrete(limits=rev)
+
+
+cts_mean <- cts_tidy %>% group_by(gene,siRNA, cells) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) 
+
+```
+
+```{r, }
+cts_mean %>% filter(cells == "C2bbe1") %>% ggplot(aes(x = siRNA, y = -mean_Cq, col = siRNA)) + geom_point(position = "jitter") + facet_grid(.~gene, scales = "free") + theme_cowplot()
+
+cts_tidy %>% filter(cells == "C2bbe1") %>% ggplot(aes(x = siRNA, y = -Cq, col = siRNA)) + geom_point(position = "jitter") + facet_grid(.~gene, scales = "free") + theme_cowplot()
+
+comps <- list(c("NC1", "LARP1"), c("NC1", "LARP6"), c("NC1", "LARP7"), c("NC1", "SSB"))
+
+cts_mean %>% filter(cells == "C2bbe1") %>% spread(gene, mean_Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = mean_Cq) %>% na.omit() %>% ggplot(aes(x = siRNA, y = 2^(-(mean_Cq - HPRT)), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(.~gene, scale = "free", nrow = 2) + guides(col = FALSE)
+
+cts_tidy %>% filter(cells == "C2bbe1") %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% ggplot(aes(x = siRNA, y = 2^(-(Cq - HPRT)), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(.~gene, scales = "free", nrow = 2) + stat_compare_means(comparisons = comps, method = "t.test") + guides(col = FALSE)
+
+# final amazing plot
+
+NC_norm <- cts_tidy %>% filter(cells == "C2bbe1") %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% group_by(gene, siRNA) %>% summarise(Hprt_norm = Hprt_norm, mean_Hprt_norm = mean(Hprt_norm)) %>% ungroup() %>%  filter(siRNA == "NC1")  %>% select(gene, siRNA, mean_Hprt_norm) %>% unique()
+
+mean_dat <- cts_tidy  %>% filter(cells == "C2bbe1") %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% left_join(., NC_norm, by = c("gene")) %>% mutate(relKD = 100 - (Hprt_norm/mean_Hprt_norm * 100)) %>% ungroup() %>% group_by(siRNA.x,gene) %>% summarise(mean_relKD = mean(relKD)) #%>% rename(c("siRNA" = "siRNA.x"))
+
+cts_tidy %>% filter(cells == "C2bbe1") %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% left_join(., NC_norm, by = c("gene")) %>% ggplot(aes(x = siRNA.x, y = 100 - (Hprt_norm/mean_Hprt_norm * 100), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(.~gene, scales = "free", nrow = 2) + guides(col = FALSE) + labs(x = "", y = "Relative Percent Knockdown") + geom_text(aes(y = -0.1, label = round(mean_relKD,1)), data = mean_dat)
+
+```
+
+## ok same cDNA from C2bbe1 cells differentiated for 10 days. Transfected with LARP siRNAs on day -10
+### this time FF/RE Taqman qPCR
+
+VIC/HEX == FF
+FAM == RE 
+
+
+```{r, }
+cts <- as_tibble(read.table("Ankita_2021-08-02 11-57-48_CT022996 -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")) 
+```
+
+```{r, }
+cts_tidy <- cts %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(RP = ifelse(row %in% c("A", "B", "C"), "RPL7",
+                ifelse(row %in% c("D", "E", "F"), "RPS28","empty"))) %>% 
+  filter(RP != "empty") %>%
+  mutate(siRNA = ifelse(col == "01", "SSB",
+                 ifelse(col == "02", "LARP1",
+                 ifelse(col == "03", "LARP6",
+                 ifelse(col == "04", "LARP7",
+                 ifelse(col == "05", "NC1",
+                 ifelse(col == "07", "Ssb",
+                 ifelse(col == "08", "Larp1",
+                 ifelse(col == "09", "Larp4",
+                 ifelse(col == "10", "Larp7",
+                 ifelse(col == "11", "NC1",
+                 ifelse(col == "12", "none", "empty")))))))))))) %>% 
+  filter(siRNA != "empty") %>% 
+  mutate(cells = ifelse(col %in% c("01", "02", "03", "04", "05"), "C2bbe1", 
+                     ifelse(col %in% c("07", "08", "09", "10", "11", "12"), "CAD", "empty"))) %>% 
+  filter(cells != "empty") %>%
+  filter(Fluor %in% c("FAM", "HEX")) %>% 
+  select(row, col, Fluor, cells, RP, siRNA, Cq) %>% 
+  mutate(#Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),nrow(.)/3)) %>% 
+  na.omit()
+
+# Plate View
+cts_tidy %>% 
+  ggplot(aes(col, row)) +
+  geom_tile(aes(fill = Cq)) + 
+  geom_text(aes(label = round(Cq, 1))) +
+  scale_fill_gradient(low = "red", high = "white") +
+  scale_y_discrete(limits=rev) +
+  facet_grid(.~Fluor)
+
+
+cts_mean <- cts_tidy %>% group_by(Fluor, RP,siRNA, cells) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) 
+
+```
+
+```{r, }
+cts_mean %>% filter(cells == "C2bbe1") %>% unite(cells, RP, col = line, sep = "_") %>% ggplot(aes(x = siRNA, y = -mean_Cq, col = siRNA)) + geom_point(position = "jitter") + facet_grid(line~Fluor, scales = "free") + theme_cowplot()
+
+cts_tidy %>% filter(cells == "C2bbe1") %>% unite(cells, RP, col = line, sep = "_") %>% ggplot(aes(x = siRNA, y = -Cq, col = siRNA)) + geom_point(position = "jitter") + facet_grid(line~Fluor, scales = "free") + theme_cowplot()
+
+comps <- list(c("NC1", "LARP1"), c("NC1", "LARP6"), c("NC1", "LARP7"), c("NC1", "SSB"))
+
+cts_mean %>% filter(cells == "C2bbe1") %>% unite(cells, RP, col = line, sep = "_") %>% spread(Fluor, mean_Cq)  %>% ggplot(aes(x = siRNA, y = 2^(-(HEX - FAM)), col = siRNA)) + geom_point(position = "jitter") + theme_cowplot()  + guides(col = FALSE)
+
+cts_tidy %>% filter(cells == "C2bbe1") %>% unite(cells, RP, col = line, sep = "_") %>% select(-row,-col) %>% spread(Fluor, Cq) %>% ggplot(aes(x = siRNA, y = 2^(-(HEX - FAM)), col = siRNA)) + geom_point(position = "jitter") + theme_cowplot() + stat_compare_means(comparisons = comps, method = "t.test") + guides(col = FALSE)
+
+# final amazing plot
+
+NC_norm <- cts_tidy %>% filter(cells == "C2bbe1") %>% unite(cells, RP, col = line, sep = "_") %>% select(-row,-col) %>% spread(Fluor, Cq)  %>% mutate(FF_RE_norm = 2^(-(HEX - FAM))) %>% group_by(line, siRNA) %>% summarise(FF_RE_norm = FF_RE_norm, mean_FF_RE_norm = mean(FF_RE_norm)) %>% ungroup() %>%  filter(siRNA == "NC1")  %>% select(line, siRNA, mean_FF_RE_norm) %>% unique()
+
+mean_dat <- cts_tidy  %>% filter(cells == "C2bbe1") %>% unite(cells, RP, col = line, sep = "_") %>% select(-row,-col) %>% spread(Fluor, Cq) %>% mutate(FF_RE_norm = 2^(-(HEX - FAM))) %>% left_join(., NC_norm, by = c("line")) %>% mutate(relKD = (FF_RE_norm/mean_FF_RE_norm * 1)) %>% ungroup() %>% group_by(siRNA.x,line) %>% summarise(mean_relKD = mean(relKD)) #%>% rename(c("siRNA" = "siRNA.x"))
+
+cts_tidy %>% filter(cells == "C2bbe1") %>% unite(cells, RP, col = line, sep = "_") %>% select(-row,-col) %>% spread(Fluor, Cq) %>% mutate(FF_RE_norm = 2^(-(HEX - FAM))) %>% left_join(., NC_norm, by = c("line")) %>% ggplot(aes(x = siRNA.x, y = (FF_RE_norm/mean_FF_RE_norm * 1), col = siRNA.x)) + geom_point(position = "jitter") + theme_cowplot() + guides(col = FALSE) + labs(x = "", y = "Relative FF Abundance") + geom_text(aes(y = 0.75, label = round(mean_relKD,1)), data = mean_dat) + stat_compare_means(comparisons = comps, method = "t.test")
+
+```
+
+## C2bbe1 cells were differentiated for 10 days (again). Transfected with LARP siRNAs on day -10
+#### This is a redo with the membrane differentiated cells (from the TEER timecourse)
+
+```{r, }
+cts <- as_tibble(read.table("Ankita_2021-08-04 13-46-43_CT022996 -  Quantification Cq Results_0.csv", header = TRUE, sep = ",")) 
+```
+
+```{r, }
+cts_tidy <- cts %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(gene = ifelse(row %in% c("A", "B", "C"), "HPRT",
+                ifelse(row %in% c("D", "E", "F"), "SSB",
+                ifelse(row %in% c("G", "H", "I"), "LARP1",
+                ifelse(row %in% c("J", "K", "L"), "LARP6",
+                ifelse(row %in% c("M", "N", "O"), "LARP7", "empty")))))) %>% 
+  filter(gene != "empty") %>%
+  mutate(siRNA = ifelse(col == "01", "SSB",
+                 ifelse(col == "02", "LARP1",
+                 ifelse(col == "03", "LARP6",
+                 ifelse(col == "04", "LARP7",
+                 ifelse(col == "05", "NC1", "empty")))))) %>% 
+  filter(siRNA != "empty") %>% 
+  select(row, col, gene, siRNA, Cq) %>% 
+  mutate(#Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),nrow(.)/3)) %>% 
+  na.omit()
+
+# Plate View
+cts_tidy %>% 
+  ggplot(aes(col, row)) +
+  geom_tile(aes(fill = Cq)) + 
+  geom_text(aes(label = round(Cq, 1))) +
+  scale_fill_gradient(low = "red", high = "white") +
+  scale_y_discrete(limits=rev)
+
+# get rid of weird signal from empty wells
+cts_tidy <- cts_tidy %>% filter(!(row == "H" & col == "04"), 
+                      !(row == "I" & col == "04"))
+
+cts_mean <- cts_tidy %>% group_by(gene,siRNA) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) 
+
+```
+
+```{r, }
+cts_mean %>% ggplot(aes(x = siRNA, y = -mean_Cq, col = siRNA)) + geom_point(position = "jitter") + facet_grid(.~gene, scales = "free") + theme_cowplot()
+
+cts_tidy  %>% ggplot(aes(x = siRNA, y = -Cq, col = siRNA)) + geom_point(position = "jitter") + facet_grid(.~gene, scales = "free") + theme_cowplot()
+
+comps <- list(c("NC1", "LARP1"), c("NC1", "LARP6"), c("NC1", "LARP7"), c("NC1", "SSB"))
+
+cts_mean  %>% spread(gene, mean_Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = mean_Cq) %>% na.omit() %>% ggplot(aes(x = siRNA, y = 2^(-(mean_Cq - HPRT)), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(.~gene, scale = "free", nrow = 2) + guides(col = FALSE)
+
+cts_tidy  %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% ggplot(aes(x = siRNA, y = 2^(-(Cq - HPRT)), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(.~gene, scales = "free", nrow = 2) + stat_compare_means(comparisons = comps, method = "t.test") + guides(col = FALSE)
+
+# final amazing plot
+
+NC_norm <- cts_tidy %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% group_by(gene, siRNA) %>% summarise(Hprt_norm = Hprt_norm, mean_Hprt_norm = mean(Hprt_norm)) %>% ungroup() %>%  filter(siRNA == "NC1")  %>% select(gene, siRNA, mean_Hprt_norm) %>% unique()
+
+mean_dat <- cts_tidy  %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% left_join(., NC_norm, by = c("gene")) %>% mutate(relKD = 100 - (Hprt_norm/mean_Hprt_norm * 100)) %>% ungroup() %>% group_by(siRNA.x,gene) %>% summarise(mean_relKD = mean(relKD)) #%>% rename(c("siRNA" = "siRNA.x"))
+
+cts_tidy %>% select(-row,-col) %>% spread(gene, Cq) %>% gather(SSB, LARP1, LARP6, LARP7, key = gene, value = Cq) %>% na.omit() %>% mutate(Hprt_norm = 2^(-(Cq - HPRT))) %>% left_join(., NC_norm, by = c("gene")) %>% ggplot(aes(x = siRNA.x, y = 100 - (Hprt_norm/mean_Hprt_norm * 100), col = gene)) + geom_point(position = "jitter") + theme_cowplot() + facet_wrap(.~gene, scales = "free", nrow = 2) + guides(col = FALSE) + labs(x = "", y = "Relative Percent Knockdown") + geom_text(aes(y = -0.1, label = round(mean_relKD,1)), data = mean_dat)
+
+```
+
+
+

@@ -1,0 +1,54 @@
+---
+title: "Organoid FF check"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(cowplot)
+library(ggpubr)
+```
+
+## C2bbe1 cells were differentiated for 7 days. Transfected with LARP siRNAs on day -4 or day -2
+
+```{r, get qPCR data}
+RPS28 <- as_tibble(read.table("admin_2021-07-20 11-28-46_796BR02132 -  Quantification Cq Results.csv", header = TRUE, sep = ",")) 
+```
+
+```{r, }
+RPS28_tidy <- RPS28 %>%
+  as_tibble() %>% 
+  separate(Well, into = c("row", "col"), sep = 1) %>%
+  mutate(gene = ifelse(row %in% c("A", "B", "C"), "HPRT",
+                ifelse(row %in% c("D", "E", "F"), "FF","empty"))) %>% 
+  filter(gene != "empty") %>% 
+  mutate(Vector = ifelse(col == "01", "+Vector", 
+                     ifelse(col == "02", "-Vector", "empty"))) %>% 
+  filter(Vector != "empty") %>% 
+  select(row, col, gene, Vector, Cq) %>% 
+  mutate(#Cq = ifelse(is.na(Cq), 40, Cq),
+         rep = rep(c(1,2,3),nrow(.)/3)) %>% 
+  na.omit()
+
+RPS28_mean <- RPS28_tidy %>% group_by(gene,siRNA, trsfx_day) %>% summarize(mean_Cq = mean(Cq, na.rm = TRUE)) %>% mutate(siRNA_id = paste(siRNA, trsfx_day, sep = ""))
+
+
+```
+
+```{r, plate view}
+RPS28_tidy %>% 
+  ggplot(aes(col, row)) +
+  geom_tile(aes(fill = Cq)) + 
+  geom_text(aes(label = round(Cq, 1))) +
+  scale_fill_gradient(low = "red", high = "white") +
+  scale_y_discrete(limits=rev) 
+
+```
+
+```{r, }
+RPS28_tidy %>% ggplot(aes(x = Vector, y = -Cq, col = Vector)) + geom_point(position = "jitter", size = 5) + facet_grid(.~gene, scales = "free") + theme_cowplot() + guides(fill = FALSE)
+
+RPS28_tidy %>% select(-row, -col) %>% spread(gene, Cq) %>% ggplot(aes(x = Vector, y = 2^(-(FF - HPRT)), col = Vector)) + geom_point(position = "jitter", size = 5) + theme_cowplot() + stat_compare_means(comparisons = list(c("+Vector", "-Vector")), method = "t.test") + scale_x_discrete(limits = c("+Vector","-Vector")) + guides(col = FALSE) + labs(x = "", y = "Relative Firefly Expression \n HPRT normalized") + scale_color_manual(values = c( "#415190", "#c5474e"))
+
+```
